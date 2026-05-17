@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Create release
+        if: env.ACT_LOCAL != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -38,19 +39,26 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y mkosi squashfs-tools
+          sudo apt-get install -y mkosi squashfs-tools systemd-boot kmod
 
       - name: Build image
         run: scripts/build "${{ matrix.image }}"
 
-      - name: Upload release assets
+      - name: Prepare release assets
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
           IMAGE: ${{ matrix.image }}
         run: |
           dir="dist/$IMAGE"
           cp "$dir/rootfs.squashfs" "$dir/$IMAGE-amd64-rootfs.squashfs"
           cp "$dir/manifest.json" "$dir/$IMAGE-amd64-manifest.json"
           cp "$dir/SHA256SUMS" "$dir/$IMAGE-amd64-SHA256SUMS"
+
+      - name: Upload release assets
+        if: env.ACT_LOCAL != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          dir="dist/$IMAGE"
           gh release upload "$TAG" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
