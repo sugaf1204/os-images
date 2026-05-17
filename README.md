@@ -33,3 +33,12 @@ Images:
 The images intentionally build completed target root filesystems. GOMI should
 not ask curtin to install a replacement kernel or refresh packages for these
 artifacts.
+
+## Release
+
+Pushing a `v*` tag builds every image on GitHub Actions and attaches these
+assets to the GitHub Release:
+
+- `<image>-amd64-rootfs.squashfs`
+- `<image>-amd64-manifest.json`
+- `<image>-amd64-SHA256SUMS`

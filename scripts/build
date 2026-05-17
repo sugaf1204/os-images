@@ -7,7 +7,7 @@ src="$root/images/$image"
 work="$root/.build/$image"
 out="$root/dist/$image"
 
-for cmd in mkosi mksquashfs bootctl; do
+for cmd in mkosi mksquashfs; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
