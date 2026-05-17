@@ -8,6 +8,7 @@ rm -f "$root/var/lib/dbus/machine-id"
 rm -f "$root"/etc/ssh/ssh_host_*_key "$root"/etc/ssh/ssh_host_*_key.pub
 rm -f "$root/var/log/cloud-init.log" "$root/var/log/cloud-init-output.log"
 rm -rf "$root"/var/lib/cloud/* "$root"/var/cache/apt/archives/* "$root"/var/lib/apt/lists/*
+rm -f "$root/usr/share/initramfs-tools/hooks/fixrtc"
 
 chroot "$root" update-initramfs -c -k all
 
