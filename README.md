@@ -43,7 +43,7 @@ assets to the GitHub Release:
 - `<image>-amd64-manifest.json`
 - `<image>-amd64-SHA256SUMS`
 
-The release workflow is guarded so only `sugaf1204` can run the expensive
-release/build jobs in `sugaf1204/os-images`. Other actors may create a skipped
-workflow run, but no image build job starts. For local `act` checks, pass
-`--actor sugaf1204` together with `ACT_LOCAL=true`.
+The release workflow is guarded so only `sugaf1204` can run or re-run the
+expensive release/build jobs in `sugaf1204/os-images`. Other actors may create
+a skipped workflow run, but no image build job starts. For local `act` checks,
+pass `--actor sugaf1204` together with `ACT_LOCAL=true`.

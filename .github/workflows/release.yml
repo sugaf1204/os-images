@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   create-release:
-    if: github.repository == 'sugaf1204/os-images' && github.actor == 'sugaf1204'
+    if: github.repository == 'sugaf1204/os-images' && github.actor == 'sugaf1204' && github.triggering_actor == 'sugaf1204'
     runs-on: ubuntu-24.04
     steps:
       - name: Create release
@@ -21,7 +21,7 @@ jobs:
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes
 
   build:
-    if: github.repository == 'sugaf1204/os-images' && github.actor == 'sugaf1204'
+    if: github.repository == 'sugaf1204/os-images' && github.actor == 'sugaf1204' && github.triggering_actor == 'sugaf1204'
     needs: create-release
     runs-on: ubuntu-24.04
     strategy:
