@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="${1:?usage: scripts/build <image>}"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+src="$root/images/$image"
+work="$root/.build/$image"
+out="$root/dist/$image"
+
+for cmd in mkosi mksquashfs bootctl; do
+  command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
+done
+
+test -d "$src" || { echo "unknown image: $image" >&2; exit 2; }
+sudo rm -rf "$work" "$out"
+mkdir -p "$work" "$out"
+
+sudo mkosi --directory "$src" --output-dir "$work" --force build
+rootfs="$work/rootfs"
+test -d "$rootfs" || { echo "mkosi did not create $rootfs" >&2; exit 1; }
+
+sudo mksquashfs "$rootfs" "$out/rootfs.squashfs" \
+  -noappend -comp xz -b 1M -processors "$(nproc)" -all-root
+sudo chown "$(id -u):$(id -g)" "$out/rootfs.squashfs"
+
+size="$(stat -c %s "$out/rootfs.squashfs")"
+sha256sum "$out/rootfs.squashfs" > "$out/SHA256SUMS"
+cat >"$out/manifest.json" <<JSON
+{
+  "name": "$image",
+  "format": "squashfs",
+  "root": {
+    "path": "rootfs.squashfs",
+    "format": "squashfs",
+    "compression": "xz",
+    "size": $size,
+    "sha256": "$(cut -d' ' -f1 "$out/SHA256SUMS")"
+  }
+}
+JSON
