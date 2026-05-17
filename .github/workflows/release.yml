@@ -17,7 +17,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release view "$TAG" || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes
 
   build:
     needs: create-release
@@ -61,4 +61,4 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           dir="dist/$IMAGE"
-          gh release upload "$TAG" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
