@@ -52,8 +52,8 @@ jobs:
         run: |
           dir="dist/$IMAGE"
           cp "$dir/rootfs.squashfs" "$dir/$IMAGE-amd64-rootfs.squashfs"
-          cp "$dir/manifest.json" "$dir/$IMAGE-amd64-manifest.json"
-          cp "$dir/SHA256SUMS" "$dir/$IMAGE-amd64-SHA256SUMS"
+          cp "$dir/manifest.json" "$dir/$IMAGE-amd64-rootfs-manifest.json"
+          (cd "$dir" && sha256sum "$IMAGE-amd64-rootfs.squashfs" > "$IMAGE-amd64-rootfs-SHA256SUMS")
 
       - name: Upload release assets
         if: env.ACT_LOCAL != 'true'
@@ -63,4 +63,56 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           dir="dist/$IMAGE"
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-rootfs-manifest.json" "$dir/$IMAGE-amd64-rootfs-SHA256SUMS" --clobber
+
+  build-qcow2:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner
+    needs: create-release
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian-12
+          - debian-13
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - fedora-44
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 curl qemu-system-x86 qemu-utils unzip xorriso
+          curl -fsSL https://releases.hashicorp.com/packer/1.15.3/packer_1.15.3_linux_amd64.zip -o /tmp/packer.zip
+          sudo unzip -o /tmp/packer.zip -d /usr/local/bin
+          packer version
+
+      - name: Build qcow2 image
+        run: scripts/build-qcow2 "${{ matrix.image }}"
+
+      - name: Smoke boot qcow2 image
+        run: scripts/smoke-qcow2 "${{ matrix.image }}"
+
+      - name: Prepare qcow2 release assets
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          dir="dist/$IMAGE"
+          cp "$dir/root.qcow2" "$dir/$IMAGE-amd64.qcow2"
+          cp "$dir/manifest.json" "$dir/$IMAGE-amd64-manifest.json"
+          (cd "$dir" && sha256sum "$IMAGE-amd64.qcow2" > "$IMAGE-amd64-SHA256SUMS")
+          cp "$dir/qemu-img-info.txt" "$dir/$IMAGE-amd64-qemu-img-info.txt"
+
+      - name: Upload qcow2 release assets
+        if: env.ACT_LOCAL != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          dir="dist/$IMAGE"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64.qcow2" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" "$dir/$IMAGE-amd64-qemu-img-info.txt" --clobber

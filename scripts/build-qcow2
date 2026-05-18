@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="${1:?usage: scripts/build-qcow2 <image>}"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+work="$root/.build/qcow2/$image"
+out="$root/dist/$image"
+packer_dir="$root/packer"
+cache="$root/.cache/qcow2"
+max_growth_bytes="$((250 * 1024 * 1024))"
+cd_files_json="[]"
+
+case "$image" in
+  debian-12)
+    os_family="debian"
+    os_version="12"
+    source_url="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+    checksums_url="https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"
+    checksum_type="sha512"
+    provision_script="$packer_dir/scripts/debian-qcow2-provision.sh"
+    ;;
+  debian-13)
+    os_family="debian"
+    os_version="13"
+    source_url="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"
+    checksums_url="https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"
+    checksum_type="sha512"
+    provision_script="$packer_dir/scripts/debian-qcow2-provision.sh"
+    ;;
+  ubuntu-22.04)
+    os_family="ubuntu"
+    os_version="22.04"
+    source_url="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+    checksums_url="https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"
+    checksum_type="sha256"
+    provision_script="$packer_dir/scripts/ubuntu-qcow2-provision.sh"
+    ;;
+  ubuntu-24.04)
+    os_family="ubuntu"
+    os_version="24.04"
+    source_url="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+    checksums_url="https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"
+    checksum_type="sha256"
+    provision_script="$packer_dir/scripts/ubuntu-qcow2-provision.sh"
+    ;;
+  ubuntu-26.04)
+    os_family="ubuntu"
+    os_version="26.04"
+    source_url="https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
+    checksums_url="https://cloud-images.ubuntu.com/resolute/current/SHA256SUMS"
+    checksum_type="sha256"
+    provision_script="$packer_dir/scripts/ubuntu-qcow2-provision.sh"
+    ;;
+  fedora-44)
+    os_family="fedora"
+    os_version="44"
+    source_url="https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
+    checksums_url="https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-44-1.7-x86_64-CHECKSUM"
+    checksum_type="sha256"
+    provision_script="$packer_dir/scripts/fedora-qcow2-provision.sh"
+    fedora_kernel_abi="6.19.10-300.fc44.x86_64"
+    ;;
+  *)
+    echo "unknown qcow2 image: $image" >&2
+    exit 2
+    ;;
+esac
+
+for cmd in curl packer qemu-img "${checksum_type}sum" sha256sum ssh-keygen; do
+  command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
+done
+
+file_size() {
+  stat -c %s "$1" 2>/dev/null || stat -f %z "$1"
+}
+
+extract_checksum() {
+  local file="$1"
+  local path="$2"
+  awk -v file="$file" '
+    function clean(s) {
+      gsub(/^\*/, "", s)
+      gsub(/[()]/, "", s)
+      return s
+    }
+    {
+      for (i = 1; i <= NF; i++) {
+        token = clean($i)
+        if (token == file) {
+          for (j = 1; j <= NF; j++) {
+            digest = clean($j)
+            if (digest ~ /^[0-9a-fA-F]+$/ && length(digest) >= 64) {
+              print tolower(digest)
+              exit
+            }
+          }
+        }
+      }
+    }
+  ' "$path"
+}
+
+download() {
+  local url="$1"
+  local path="$2"
+  if command -v aria2c >/dev/null; then
+    aria2c --allow-overwrite=true --auto-file-renaming=false --continue=true --max-connection-per-server=8 --min-split-size=4M --split=8 --out "$(basename "$path")" --dir "$(dirname "$path")" "$url"
+  else
+    curl -fL --retry 5 --retry-all-errors --continue-at - "$url" -o "$path"
+  fi
+}
+
+json_string_array() {
+  if [ "$#" -eq 0 ]; then
+    printf '[]'
+    return
+  fi
+
+  printf '['
+  local first=1
+  local item
+  for item in "$@"; do
+    if [ "$first" -eq 1 ]; then
+      first=0
+    else
+      printf ','
+    fi
+    printf '"%s"' "$(printf '%s' "$item" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  done
+  printf ']'
+}
+
+if [ "${QEMU_ACCELERATOR:-}" ]; then
+  qemu_accelerator="$QEMU_ACCELERATOR"
+elif [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+  qemu_accelerator="kvm"
+else
+  qemu_accelerator="tcg"
+fi
+
+rm -rf "$work" "$out"
+mkdir -p "$work" "$out" "$cache" "$root/.cache/packer"
+
+source_name="$(basename "$source_url")"
+source_path="$cache/$image-$source_name"
+checksums_path="$cache/$image-$(basename "$checksums_url")"
+
+curl -fsSL --retry 5 --retry-all-errors "$checksums_url" -o "$checksums_path"
+expected_checksum="$(extract_checksum "$source_name" "$checksums_path")"
+test -n "$expected_checksum" || { echo "checksum for $source_name not found in $checksums_url" >&2; exit 1; }
+
+if [ ! -f "$source_path" ] || ! printf '%s  %s\n' "$expected_checksum" "$source_path" | "${checksum_type}sum" -c - >/dev/null 2>&1; then
+  download "$source_url" "$source_path"
+fi
+printf '%s  %s\n' "$expected_checksum" "$source_path" | "${checksum_type}sum" -c -
+
+if [ "$image" = "fedora-44" ]; then
+  rpm_cache="$cache/fedora-44-rpms"
+  mkdir -p "$rpm_cache"
+  fedora_rpm_base="https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/Packages"
+  fedora_rpms=(
+    "k/kernel-modules-$fedora_kernel_abi.rpm"
+    "k/kernel-modules-extra-$fedora_kernel_abi.rpm"
+    "l/linux-firmware-whence-20260309-1.fc44.noarch.rpm"
+    "r/realtek-firmware-20260309-1.fc44.noarch.rpm"
+    "m/microcode_ctl-2.1-74.fc44.x86_64.rpm"
+  )
+  fedora_cd_files=()
+  for rpm in "${fedora_rpms[@]}"; do
+    rpm_name="$(basename "$rpm")"
+    if [ ! -f "$rpm_cache/$rpm_name" ]; then
+      download "$fedora_rpm_base/$rpm" "$rpm_cache/$rpm_name"
+    fi
+    fedora_cd_files+=("$rpm_cache/$rpm_name")
+  done
+  cd_files_json="$(json_string_array "${fedora_cd_files[@]}")"
+fi
+
+source_size="$(file_size "$source_path")"
+ssh-keygen -q -t ed25519 -N "" -C "packer-$image" -f "$work/ssh_key"
+
+packer init "$packer_dir"
+PACKER_CACHE_DIR="$root/.cache/packer" packer build -force \
+  -var "image_name=$image-amd64" \
+  -var "source_image=$source_path" \
+  -var "source_checksum=$checksum_type:$expected_checksum" \
+  -var "output_directory=$work/output" \
+  -var "vm_name=root.qcow2" \
+  -var "provision_script=$provision_script" \
+  -var "cd_files=$cd_files_json" \
+  -var "qemu_accelerator=$qemu_accelerator" \
+  -var "ssh_private_key_file=$work/ssh_key" \
+  -var "ssh_public_key_file=$work/ssh_key.pub" \
+  "$packer_dir"
+
+test -f "$work/output/root.qcow2" || { echo "packer did not create $work/output/root.qcow2" >&2; exit 1; }
+cp "$work/output/root.qcow2" "$out/root.qcow2"
+
+size="$(file_size "$out/root.qcow2")"
+growth="$((size - source_size))"
+if [ "$growth" -gt "$max_growth_bytes" ]; then
+  echo "qcow2 size growth exceeds 250 MiB: source=$source_size final=$size growth=$growth" >&2
+  exit 1
+fi
+
+(cd "$out" && sha256sum root.qcow2 > SHA256SUMS)
+qemu-img info "$out/root.qcow2" > "$out/qemu-img-info.txt"
+
+cat >"$out/manifest.json" <<JSON
+{
+  "name": "$image",
+  "osFamily": "$os_family",
+  "osVersion": "$os_version",
+  "architecture": "amd64",
+  "format": "qcow2",
+  "bootEnvironments": ["vm", "machine"],
+  "firmwareProfile": "consumer-wired",
+  "root": {
+    "path": "root.qcow2",
+    "format": "qcow2",
+    "compression": "qcow2",
+    "size": $size,
+    "sha256": "$(cut -d' ' -f1 "$out/SHA256SUMS")"
+  },
+  "source": {
+    "url": "$source_url",
+    "checksumType": "$checksum_type",
+    "checksum": "$expected_checksum",
+    "size": $source_size
+  },
+  "build": {
+    "qemuAccelerator": "$qemu_accelerator",
+    "maxGrowthBytes": $max_growth_bytes,
+    "growthBytes": $growth
+  }
+}
+JSON
+
+printf 'qcow2 source size: %s bytes\n' "$source_size"
+printf 'qcow2 final size: %s bytes\n' "$size"
+printf 'qcow2 size growth: %s bytes\n' "$growth"

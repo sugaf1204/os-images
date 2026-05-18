@@ -9,8 +9,6 @@ rm -f "$root"/etc/ssh/ssh_host_*_key "$root"/etc/ssh/ssh_host_*_key.pub
 rm -f "$root/var/log/cloud-init.log" "$root/var/log/cloud-init-output.log"
 rm -rf "$root"/var/lib/cloud/* "$root"/var/cache/apt/archives/* "$root"/var/lib/apt/lists/*
 
-chroot "$root" update-initramfs -c -k all
-
 mkdir -p "$root/etc/cloud/cloud.cfg.d"
 cat >"$root/etc/cloud/cloud.cfg.d/99_gomi_nocloud.cfg" <<'EOF'
 datasource_list: [ NoCloud, None ]
