@@ -6,8 +6,9 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src="$root/images/$image"
 work="$root/.build/$image"
 out="$root/dist/$image"
+mkosi_bin="${MKOSI:-mkosi}"
 
-for cmd in mkosi mksquashfs bootctl depmod; do
+for cmd in "$mkosi_bin" mksquashfs bootctl depmod; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
@@ -15,7 +16,7 @@ test -d "$src" || { echo "unknown image: $image" >&2; exit 2; }
 sudo rm -rf "$work" "$out"
 mkdir -p "$work" "$out"
 
-sudo mkosi --directory "$src" --output-dir "$work" --force build
+sudo "$mkosi_bin" --directory "$src" --output-dir "$work" --force build
 rootfs="$work/rootfs"
 test -d "$rootfs" || { echo "mkosi did not create $rootfs" >&2; exit 1; }
 
@@ -24,7 +25,7 @@ sudo mksquashfs "$rootfs" "$out/rootfs.squashfs" \
 sudo chown "$(id -u):$(id -g)" "$out/rootfs.squashfs"
 
 size="$(stat -c %s "$out/rootfs.squashfs")"
-sha256sum "$out/rootfs.squashfs" > "$out/SHA256SUMS"
+(cd "$out" && sha256sum rootfs.squashfs > SHA256SUMS)
 cat >"$out/manifest.json" <<JSON
 {
   "name": "$image",
