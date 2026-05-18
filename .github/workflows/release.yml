@@ -53,7 +53,7 @@ jobs:
           dir="dist/$IMAGE"
           cp "$dir/rootfs.squashfs" "$dir/$IMAGE-amd64-rootfs.squashfs"
           cp "$dir/manifest.json" "$dir/$IMAGE-amd64-rootfs-manifest.json"
-          cp "$dir/SHA256SUMS" "$dir/$IMAGE-amd64-rootfs-SHA256SUMS"
+          (cd "$dir" && sha256sum "$IMAGE-amd64-rootfs.squashfs" > "$IMAGE-amd64-rootfs-SHA256SUMS")
 
       - name: Upload release assets
         if: env.ACT_LOCAL != 'true'
@@ -104,7 +104,7 @@ jobs:
           dir="dist/$IMAGE"
           cp "$dir/root.qcow2" "$dir/$IMAGE-amd64.qcow2"
           cp "$dir/manifest.json" "$dir/$IMAGE-amd64-manifest.json"
-          cp "$dir/SHA256SUMS" "$dir/$IMAGE-amd64-SHA256SUMS"
+          (cd "$dir" && sha256sum "$IMAGE-amd64.qcow2" > "$IMAGE-amd64-SHA256SUMS")
           cp "$dir/qemu-img-info.txt" "$dir/$IMAGE-amd64-qemu-img-info.txt"
 
       - name: Upload qcow2 release assets
