@@ -4,37 +4,113 @@ set -euo pipefail
 image="${1:?usage: scripts/build <image>}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src="$root/images/$image"
+spec="$src/source.env"
 work="$root/.build/$image"
 out="$root/dist/$image"
 
-for cmd in mkosi mksquashfs bootctl depmod; do
+for cmd in jq packer sha256sum ssh-keygen stat; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
 test -d "$src" || { echo "unknown image: $image" >&2; exit 2; }
-sudo rm -rf "$work" "$out"
+test -f "$spec" || { echo "missing source spec: $spec" >&2; exit 2; }
+
+# shellcheck disable=SC1090
+. "$spec"
+
+: "${SOURCE_URL:?SOURCE_URL is required}"
+: "${OS_FAMILY:?OS_FAMILY is required}"
+: "${OS_VERSION:?OS_VERSION is required}"
+: "${DEFAULT_USER:?DEFAULT_USER is required}"
+: "${ROOT_PARTITION_NUMBER:?ROOT_PARTITION_NUMBER is required}"
+
+arch="${ARCH:-amd64}"
+root_filesystem="${ROOT_FILESYSTEM:-}"
+efi_partition_number="${EFI_PARTITION_NUMBER:-}"
+efi_filesystem="${EFI_FILESYSTEM:-vfat}"
+source_sha256="${SOURCE_SHA256:-}"
+qemu_accelerator="${QEMU_ACCELERATOR:-tcg}"
+ssh_timeout="${PACKER_SSH_TIMEOUT:-10m}"
+
+rm -rf "$work" "$out"
 mkdir -p "$work" "$out"
 
-sudo mkosi --directory "$src" --output-dir "$work" --force build
-rootfs="$work/rootfs"
-test -d "$rootfs" || { echo "mkosi did not create $rootfs" >&2; exit 1; }
+ssh_key="$work/packer_ed25519"
+ssh-keygen -q -t ed25519 -N "" -C "gomi-os-images-packer" -f "$ssh_key"
+ssh_public_key="$(cat "$ssh_key.pub")"
 
-sudo mksquashfs "$rootfs" "$out/rootfs.squashfs" \
-  -noappend -comp xz -b 1M -processors "$(nproc)" -all-root
-sudo chown "$(id -u):$(id -g)" "$out/rootfs.squashfs"
+packer init "$root/packer"
+PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
+  packer build -force \
+  -var "source_url=$SOURCE_URL" \
+  -var "source_checksum=$source_sha256" \
+  -var "output_directory=$work/packer-output" \
+  -var "qemu_accelerator=$qemu_accelerator" \
+  -var "ssh_username=$DEFAULT_USER" \
+  -var "ssh_private_key_file=$ssh_key" \
+  -var "ssh_public_key=$ssh_public_key" \
+  -var "ssh_timeout=$ssh_timeout" \
+  "$root/packer/qcow2.pkr.hcl"
 
-size="$(stat -c %s "$out/rootfs.squashfs")"
-sha256sum "$out/rootfs.squashfs" > "$out/SHA256SUMS"
-cat >"$out/manifest.json" <<JSON
-{
-  "name": "$image",
-  "format": "squashfs",
-  "root": {
-    "path": "rootfs.squashfs",
-    "format": "squashfs",
-    "compression": "xz",
-    "size": $size,
-    "sha256": "$(cut -d' ' -f1 "$out/SHA256SUMS")"
-  }
+test -f "$work/packer-output/root.qcow2" || {
+  echo "packer did not create $work/packer-output/root.qcow2" >&2
+  exit 1
 }
-JSON
+cp "$work/packer-output/root.qcow2" "$out/root.qcow2"
+
+(cd "$out" && sha256sum root.qcow2 > SHA256SUMS)
+if ! size="$(stat -c %s "$out/root.qcow2" 2>/dev/null)"; then
+  size="$(stat -f %z "$out/root.qcow2")"
+fi
+sha="$(cut -d' ' -f1 "$out/SHA256SUMS")"
+
+root_partition="$(jq -n \
+  --argjson number "$ROOT_PARTITION_NUMBER" \
+  --arg filesystem "$root_filesystem" \
+  '{number: $number} + (if $filesystem == "" then {} else {filesystem: $filesystem} end)')"
+
+efi_partition="null"
+if [ -n "$efi_partition_number" ]; then
+  efi_partition="$(jq -n \
+    --argjson number "$efi_partition_number" \
+    --arg filesystem "$efi_filesystem" \
+    '{number: $number, filesystem: $filesystem}')"
+fi
+
+jq -n \
+  --arg name "$image" \
+  --arg osFamily "$OS_FAMILY" \
+  --arg osVersion "$OS_VERSION" \
+  --arg arch "$arch" \
+  --arg defaultUser "$DEFAULT_USER" \
+  --argjson size "$size" \
+  --arg sha256 "$sha" \
+  --arg sourceImageURL "$SOURCE_URL" \
+  --arg sourceImageSHA256 "$source_sha256" \
+  --argjson rootPartition "$root_partition" \
+  --argjson efiPartition "$efi_partition" \
+  '{
+    name: $name,
+    osFamily: $osFamily,
+    osVersion: $osVersion,
+    arch: $arch,
+    bootModes: ["uefi"],
+    capabilities: {deployTargets: ["baremetal"]},
+    cloudInit: {
+      datasource: "nocloud",
+      seedTransport: "rootfs",
+      defaultUser: $defaultUser
+    },
+    root: ({
+      path: "root.qcow2",
+      format: "qcow2",
+      size: $size,
+      sha256: $sha256,
+      partitionTable: "gpt",
+      rootPartition: $rootPartition
+    } + (if $efiPartition == null then {} else {efiPartition: $efiPartition} end)),
+    build: {
+      sourceImageURL: $sourceImageURL,
+      sourceImageSHA256: $sourceImageSHA256
+    }
+  }' >"$out/manifest.json"

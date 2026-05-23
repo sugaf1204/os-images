@@ -38,10 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: hashicorp/setup-packer@main
+
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y mkosi squashfs-tools systemd-boot kmod
+          sudo apt-get install -y jq openssh-client qemu-system-x86 qemu-utils xorriso coreutils
 
       - name: Build image
         run: scripts/build "${{ matrix.image }}"
@@ -51,9 +53,9 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           dir="dist/$IMAGE"
-          cp "$dir/rootfs.squashfs" "$dir/$IMAGE-amd64-rootfs.squashfs"
+          cp "$dir/root.qcow2" "$dir/$IMAGE-amd64.qcow2"
           cp "$dir/manifest.json" "$dir/$IMAGE-amd64-manifest.json"
-          cp "$dir/SHA256SUMS" "$dir/$IMAGE-amd64-SHA256SUMS"
+          (cd "$dir" && sha256sum "$IMAGE-amd64.qcow2" "$IMAGE-amd64-manifest.json" > "$IMAGE-amd64-SHA256SUMS")
 
       - name: Upload release assets
         if: env.ACT_LOCAL != 'true'
@@ -63,4 +65,4 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           dir="dist/$IMAGE"
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64-rootfs.squashfs" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64.qcow2" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber

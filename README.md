@@ -1,6 +1,6 @@
 # os-images
 
-Minimal mkosi-based rootfs image pipeline for GOMI.
+Minimal Packer-based qcow2 whole-disk image catalog for GOMI bare-metal deploy.
 
 ## Build
 
@@ -8,9 +8,11 @@ Minimal mkosi-based rootfs image pipeline for GOMI.
 scripts/build-all
 ```
 
-Artifacts are written under `dist/<image>/`:
+Each image entry in `images/<image>/source.env` points at an upstream bootable
+qcow2 disk image. Packer consumes that qcow2 with the QEMU builder and writes a
+GOMI manifest under `dist/<image>/`:
 
-- `rootfs.squashfs`
+- `root.qcow2`
 - `manifest.json`
 - `SHA256SUMS`
 
@@ -26,20 +28,25 @@ Images:
 ## Requirements
 
 - Linux x86_64 build host
-- `mkosi`
-- `mksquashfs` from `squashfs-tools`
-- `bootctl` from `systemd-boot`
+- `packer`
+- `jq`
+- QEMU tools for the Packer QEMU builder
+- `ssh-keygen`
+- `xorriso` or another ISO creation tool supported by Packer `cd_content`
+- `sha256sum` and GNU `stat` from `coreutils`
 
-The images intentionally build completed target root filesystems. GOMI should
-not ask curtin to install a replacement kernel or refresh packages for these
-artifacts.
+The images are expected to be completed target whole-disk qcow2 artifacts. This
+repository does not build or publish separate VM images; VM deployment can use
+external cloud images registered directly in GOMI. For artifacts from this
+repository, GOMI should not ask curtin to install a replacement kernel, refresh
+packages, install a bootloader, or write distro-specific network renderer files.
 
 ## Release
 
 Pushing a `v*` tag builds every image on GitHub Actions and attaches these
 assets to the GitHub Release:
 
-- `<image>-amd64-rootfs.squashfs`
+- `<image>-amd64.qcow2`
 - `<image>-amd64-manifest.json`
 - `<image>-amd64-SHA256SUMS`
 
