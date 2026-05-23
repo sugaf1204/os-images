@@ -44,7 +44,7 @@ locals {
     users:
       - default
     EOF
-  gomi_cloud_init = "datasource_list: [ NoCloud ]\ndatasource:\n  NoCloud:\n    seedfrom: file:///var/lib/cloud/seed/nocloud/\n"
+  gomi_cloud_init = "datasource_list: [ NoCloud, None ]\ndatasource:\n  NoCloud:\n    seedfrom: file:///var/lib/cloud/seed/nocloud/\n"
 }
 
 source "qemu" "qcow2" {
