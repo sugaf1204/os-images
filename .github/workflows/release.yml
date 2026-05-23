@@ -45,7 +45,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq openssh-client qemu-system-x86 qemu-utils xorriso coreutils ovmf
+          sudo apt-get install -y curl jq openssh-client qemu-system-x86 qemu-utils xorriso coreutils ovmf
 
       - name: Build image
         run: scripts/build "${{ matrix.image }}"
