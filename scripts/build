@@ -23,12 +23,13 @@ test -f "$spec" || { echo "missing source spec: $spec" >&2; exit 2; }
 : "${OS_VERSION:?OS_VERSION is required}"
 : "${DEFAULT_USER:?DEFAULT_USER is required}"
 : "${ROOT_PARTITION_NUMBER:?ROOT_PARTITION_NUMBER is required}"
+: "${SOURCE_CHECKSUM:?SOURCE_CHECKSUM is required}"
 
 arch="${ARCH:-amd64}"
 root_filesystem="${ROOT_FILESYSTEM:-}"
 efi_partition_number="${EFI_PARTITION_NUMBER:-}"
 efi_filesystem="${EFI_FILESYSTEM:-vfat}"
-source_sha256="${SOURCE_SHA256:-}"
+source_checksum="$SOURCE_CHECKSUM"
 qemu_accelerator="${QEMU_ACCELERATOR:-tcg}"
 ssh_timeout="${PACKER_SSH_TIMEOUT:-10m}"
 
@@ -43,7 +44,7 @@ packer init "$root/packer"
 PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
   packer build -force \
   -var "source_url=$SOURCE_URL" \
-  -var "source_checksum=$source_sha256" \
+  -var "source_checksum=$source_checksum" \
   -var "output_directory=$work/packer-output" \
   -var "qemu_accelerator=$qemu_accelerator" \
   -var "ssh_username=$DEFAULT_USER" \
@@ -86,7 +87,7 @@ jq -n \
   --argjson size "$size" \
   --arg sha256 "$sha" \
   --arg sourceImageURL "$SOURCE_URL" \
-  --arg sourceImageSHA256 "$source_sha256" \
+  --arg sourceImageChecksum "$source_checksum" \
   --argjson rootPartition "$root_partition" \
   --argjson efiPartition "$efi_partition" \
   '{
@@ -111,6 +112,6 @@ jq -n \
     } + (if $efiPartition == null then {} else {efiPartition: $efiPartition} end)),
     build: {
       sourceImageURL: $sourceImageURL,
-      sourceImageSHA256: $sourceImageSHA256
+      sourceImageChecksum: $sourceImageChecksum
     }
   }' >"$out/manifest.json"

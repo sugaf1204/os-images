@@ -2,7 +2,7 @@ packer {
   required_plugins {
     qemu = {
       source  = "github.com/hashicorp/qemu"
-      version = ">= 1.1.4"
+      version = "= 1.1.4"
     }
   }
 }
@@ -12,8 +12,7 @@ variable "source_url" {
 }
 
 variable "source_checksum" {
-  type    = string
-  default = ""
+  type = string
 }
 
 variable "output_directory" {
@@ -43,7 +42,6 @@ variable "ssh_timeout" {
 }
 
 locals {
-  iso_checksum = var.source_checksum == "" ? "none" : "sha256:${var.source_checksum}"
   user_data = <<-EOF
     #cloud-config
     ssh_authorized_keys:
@@ -55,12 +53,17 @@ locals {
 
 source "qemu" "qcow2" {
   iso_url      = var.source_url
-  iso_checksum = local.iso_checksum
+  iso_checksum = var.source_checksum
 
   disk_image       = true
   format           = "qcow2"
   output_directory = var.output_directory
   vm_name          = "root.qcow2"
+
+  efi_boot          = true
+  efi_drop_efivars  = true
+  efi_firmware_code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+  efi_firmware_vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
 
   accelerator       = var.qemu_accelerator
   headless          = true

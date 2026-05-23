@@ -38,12 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-packer@main
+      - uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232
+        with:
+          version: 1.15.3
 
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq openssh-client qemu-system-x86 qemu-utils xorriso coreutils
+          sudo apt-get install -y jq openssh-client qemu-system-x86 qemu-utils xorriso coreutils ovmf
 
       - name: Build image
         run: scripts/build "${{ matrix.image }}"
