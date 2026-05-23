@@ -4,38 +4,166 @@ set -euo pipefail
 image="${1:?usage: scripts/build <image>}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src="$root/images/$image"
+spec="$src/source.env"
 work="$root/.build/$image"
 out="$root/dist/$image"
-mkosi_bin="${MKOSI:-mkosi}"
 
-for cmd in "$mkosi_bin" mksquashfs bootctl depmod; do
+for cmd in awk curl jq packer sha256sum ssh-keygen stat; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
 test -d "$src" || { echo "unknown image: $image" >&2; exit 2; }
-sudo rm -rf "$work" "$out"
+test -f "$spec" || { echo "missing source spec: $spec" >&2; exit 2; }
+
+# shellcheck disable=SC1090
+. "$spec"
+
+: "${SOURCE_URL:?SOURCE_URL is required}"
+: "${OS_FAMILY:?OS_FAMILY is required}"
+: "${OS_VERSION:?OS_VERSION is required}"
+: "${DEFAULT_USER:?DEFAULT_USER is required}"
+: "${ROOT_PARTITION_NUMBER:?ROOT_PARTITION_NUMBER is required}"
+
+arch="${ARCH:-amd64}"
+root_filesystem="${ROOT_FILESYSTEM:-}"
+efi_partition_number="${EFI_PARTITION_NUMBER:-}"
+efi_filesystem="${EFI_FILESYSTEM:-vfat}"
+source_checksum="${SOURCE_CHECKSUM:-}"
+source_checksum_url="${SOURCE_CHECKSUM_URL:-}"
+source_checksum_file="${SOURCE_CHECKSUM_FILE:-$(basename "$SOURCE_URL")}"
+source_checksum_type="${SOURCE_CHECKSUM_TYPE:-}"
+ssh_timeout="${PACKER_SSH_TIMEOUT:-10m}"
+
+resolve_source_checksum() {
+  if [ -n "$source_checksum" ]; then
+    printf '%s\n' "$source_checksum"
+    return 0
+  fi
+  test -n "$source_checksum_url" || {
+    echo "SOURCE_CHECKSUM or SOURCE_CHECKSUM_URL is required" >&2
+    return 1
+  }
+  if [ -z "$source_checksum_type" ]; then
+    case "$(basename "$source_checksum_url")" in
+      SHA256SUMS | *SHA256*) source_checksum_type="sha256" ;;
+      SHA512SUMS | *SHA512*) source_checksum_type="sha512" ;;
+      *)
+        echo "SOURCE_CHECKSUM_TYPE is required for $source_checksum_url" >&2
+        return 1
+        ;;
+    esac
+  fi
+  local digest
+  digest="$(curl -fsSL "$source_checksum_url" | awk -v file="$source_checksum_file" '
+    $0 ~ ("\\*" file "$") || $0 ~ ("[[:space:]]" file "$") {
+      print $1
+      found=1
+      exit
+    }
+    $0 ~ ("\\(" file "\\)[[:space:]]*=") {
+      print $NF
+      found=1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ')" || {
+    echo "checksum for $source_checksum_file not found in $source_checksum_url" >&2
+    return 1
+  }
+  printf '%s:%s\n' "$source_checksum_type" "$digest"
+}
+
+cleanup_dir() {
+  local path="$1"
+  rm -rf "$path" 2>/dev/null && return 0
+  command -v sudo >/dev/null || {
+    echo "failed to remove $path and sudo is unavailable" >&2
+    return 1
+  }
+  sudo rm -rf "$path"
+}
+
+source_checksum="$(resolve_source_checksum)"
+
+cleanup_dir "$work"
+cleanup_dir "$out"
 mkdir -p "$work" "$out"
 
-sudo "$mkosi_bin" --directory "$src" --output-dir "$work" --force build
-rootfs="$work/rootfs"
-test -d "$rootfs" || { echo "mkosi did not create $rootfs" >&2; exit 1; }
+ssh_key="$work/packer_ed25519"
+ssh-keygen -q -t ed25519 -N "" -C "gomi-os-images-packer" -f "$ssh_key"
+ssh_public_key="$(cat "$ssh_key.pub")"
 
-sudo mksquashfs "$rootfs" "$out/rootfs.squashfs" \
-  -noappend -comp xz -b 1M -processors "$(nproc)" -all-root
-sudo chown "$(id -u):$(id -g)" "$out/rootfs.squashfs"
+packer init "$root/packer"
+PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
+  packer build -force \
+  -var "source_url=$SOURCE_URL" \
+  -var "source_checksum=$source_checksum" \
+  -var "output_directory=$work/packer-output" \
+  -var "ssh_username=$DEFAULT_USER" \
+  -var "ssh_private_key_file=$ssh_key" \
+  -var "ssh_public_key=$ssh_public_key" \
+  -var "ssh_timeout=$ssh_timeout" \
+  "$root/packer/qcow2.pkr.hcl"
 
-size="$(stat -c %s "$out/rootfs.squashfs")"
-(cd "$out" && sha256sum rootfs.squashfs > SHA256SUMS)
-cat >"$out/manifest.json" <<JSON
-{
-  "name": "$image",
-  "format": "squashfs",
-  "root": {
-    "path": "rootfs.squashfs",
-    "format": "squashfs",
-    "compression": "xz",
-    "size": $size,
-    "sha256": "$(cut -d' ' -f1 "$out/SHA256SUMS")"
-  }
+test -f "$work/packer-output/root.qcow2" || {
+  echo "packer did not create $work/packer-output/root.qcow2" >&2
+  exit 1
 }
-JSON
+cp "$work/packer-output/root.qcow2" "$out/root.qcow2"
+
+(cd "$out" && sha256sum root.qcow2 > SHA256SUMS)
+if ! size="$(stat -c %s "$out/root.qcow2" 2>/dev/null)"; then
+  size="$(stat -f %z "$out/root.qcow2")"
+fi
+sha="$(cut -d' ' -f1 "$out/SHA256SUMS")"
+
+root_partition="$(jq -n \
+  --argjson number "$ROOT_PARTITION_NUMBER" \
+  --arg filesystem "$root_filesystem" \
+  '{number: $number} + (if $filesystem == "" then {} else {filesystem: $filesystem} end)')"
+
+efi_partition="null"
+if [ -n "$efi_partition_number" ]; then
+  efi_partition="$(jq -n \
+    --argjson number "$efi_partition_number" \
+    --arg filesystem "$efi_filesystem" \
+    '{number: $number, filesystem: $filesystem}')"
+fi
+
+jq -n \
+  --arg name "$image" \
+  --arg osFamily "$OS_FAMILY" \
+  --arg osVersion "$OS_VERSION" \
+  --arg arch "$arch" \
+  --arg defaultUser "$DEFAULT_USER" \
+  --argjson size "$size" \
+  --arg sha256 "$sha" \
+  --arg sourceImageURL "$SOURCE_URL" \
+  --arg sourceImageChecksum "$source_checksum" \
+  --argjson rootPartition "$root_partition" \
+  --argjson efiPartition "$efi_partition" \
+  '{
+    name: $name,
+    osFamily: $osFamily,
+    osVersion: $osVersion,
+    arch: $arch,
+    bootModes: ["uefi"],
+    capabilities: {deployTargets: ["baremetal"]},
+    cloudInit: {
+      datasource: "nocloud",
+      seedTransport: "rootfs",
+      defaultUser: $defaultUser
+    },
+    root: ({
+      path: "root.qcow2",
+      format: "qcow2",
+      size: $size,
+      sha256: $sha256,
+      partitionTable: "gpt",
+      rootPartition: $rootPartition
+    } + (if $efiPartition == null then {} else {efiPartition: $efiPartition} end)),
+    build: {
+      sourceImageURL: $sourceImageURL,
+      sourceImageChecksum: $sourceImageChecksum
+    }
+  }' >"$out/manifest.json"

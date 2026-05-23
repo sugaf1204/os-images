@@ -1,6 +1,6 @@
 # os-images
 
-Minimal OS image pipeline for GOMI.
+Minimal Packer-based qcow2 whole-disk image catalog for GOMI bare-metal deploy.
 
 ## Build
 
@@ -8,9 +8,11 @@ Minimal OS image pipeline for GOMI.
 scripts/build-all
 ```
 
-Artifacts are written under `dist/<image>/`:
+Each image entry in `images/<image>/source.env` points at an upstream bootable
+qcow2 disk image. Packer consumes that qcow2 with the QEMU builder and writes a
+GOMI manifest under `dist/<image>/`:
 
-- `rootfs.squashfs`
+- `root.qcow2`
 - `manifest.json`
 - `SHA256SUMS`
 
@@ -26,57 +28,27 @@ Images:
 ## Requirements
 
 - Linux x86_64 build host
-- `mkosi`
-- `mksquashfs` from `squashfs-tools`
-- `bootctl` from `systemd-boot`
-- `packer` and QEMU tools for QCOW2 builds
+- `packer`
+- `jq`
+- QEMU tools for the Packer QEMU builder
+- `ssh-keygen`
+- `xorriso` or another ISO creation tool supported by Packer `cd_content`
+- `sha256sum` and GNU `stat` from `coreutils`
 
-The images intentionally build completed target root filesystems. GOMI should
-not ask curtin to install a replacement kernel or refresh packages for these
-artifacts.
-
-## QCOW2 Build
-
-```sh
-scripts/build-qcow2 ubuntu-26.04
-```
-
-QCOW2 artifacts are written under `dist/<image>/`:
-
-- `root.qcow2`
-- `manifest.json`
-- `SHA256SUMS`
-- `qemu-img-info.txt`
-
-`scripts/build-qcow2` supports the same image names as the squashfs builder:
-`debian-12`, `debian-13`, `ubuntu-22.04`, `ubuntu-24.04`, `ubuntu-26.04`,
-and `fedora-44`.
-
-The QCOW2 path starts from each distribution's official cloud image and
-customizes it with Packer's QEMU builder. The resulting image is a single
-VM/Machine asset with `bootEnvironments: ["vm", "machine"]` and
-`firmwareProfile: "consumer-wired"` in the manifest. It keeps wired consumer
-NIC support for common Realtek/Intel/Broadcom/Aquantia adapters, installs
-split Realtek firmware and Intel/AMD microcode where the OS exposes narrowly
-scoped packages, and avoids wireless, graphics, Mellanox, Netronome, QLogic,
-Marvell Prestera, and monolithic firmware packages.
-
-The source image checksum is verified from the official checksum file before
-Packer runs. The final QCOW2 must stay within 250 MiB of the official source
-image or the build fails.
+The images are expected to be completed target whole-disk qcow2 artifacts. This
+repository does not build or publish separate VM images; VM deployment can use
+external cloud images registered directly in GOMI. For artifacts from this
+repository, GOMI should not ask curtin to install a replacement kernel, refresh
+packages, install a bootloader, or write distro-specific network renderer files.
 
 ## Release
 
 Pushing a `v*` tag builds every image on GitHub Actions and attaches these
 assets to the GitHub Release:
 
-- `<image>-amd64-rootfs.squashfs`
 - `<image>-amd64.qcow2`
 - `<image>-amd64-manifest.json`
 - `<image>-amd64-SHA256SUMS`
-- `<image>-amd64-qemu-img-info.txt`
-- `<image>-amd64-rootfs-manifest.json`
-- `<image>-amd64-rootfs-SHA256SUMS`
 
 The release workflow is guarded so only the repository owner can run or re-run
 the expensive release/build jobs. Other actors may create a skipped workflow
