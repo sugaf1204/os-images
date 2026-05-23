@@ -8,7 +8,7 @@ spec="$src/source.env"
 work="$root/.build/$image"
 out="$root/dist/$image"
 
-for cmd in jq packer sha256sum ssh-keygen stat; do
+for cmd in awk curl jq packer sha256sum ssh-keygen stat; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
@@ -23,17 +23,70 @@ test -f "$spec" || { echo "missing source spec: $spec" >&2; exit 2; }
 : "${OS_VERSION:?OS_VERSION is required}"
 : "${DEFAULT_USER:?DEFAULT_USER is required}"
 : "${ROOT_PARTITION_NUMBER:?ROOT_PARTITION_NUMBER is required}"
-: "${SOURCE_CHECKSUM:?SOURCE_CHECKSUM is required}"
 
 arch="${ARCH:-amd64}"
 root_filesystem="${ROOT_FILESYSTEM:-}"
 efi_partition_number="${EFI_PARTITION_NUMBER:-}"
 efi_filesystem="${EFI_FILESYSTEM:-vfat}"
-source_checksum="$SOURCE_CHECKSUM"
-qemu_accelerator="${QEMU_ACCELERATOR:-tcg}"
+source_checksum="${SOURCE_CHECKSUM:-}"
+source_checksum_url="${SOURCE_CHECKSUM_URL:-}"
+source_checksum_file="${SOURCE_CHECKSUM_FILE:-$(basename "$SOURCE_URL")}"
+source_checksum_type="${SOURCE_CHECKSUM_TYPE:-}"
 ssh_timeout="${PACKER_SSH_TIMEOUT:-10m}"
 
-rm -rf "$work" "$out"
+resolve_source_checksum() {
+  if [ -n "$source_checksum" ]; then
+    printf '%s\n' "$source_checksum"
+    return 0
+  fi
+  test -n "$source_checksum_url" || {
+    echo "SOURCE_CHECKSUM or SOURCE_CHECKSUM_URL is required" >&2
+    return 1
+  }
+  if [ -z "$source_checksum_type" ]; then
+    case "$(basename "$source_checksum_url")" in
+      SHA256SUMS | *SHA256*) source_checksum_type="sha256" ;;
+      SHA512SUMS | *SHA512*) source_checksum_type="sha512" ;;
+      *)
+        echo "SOURCE_CHECKSUM_TYPE is required for $source_checksum_url" >&2
+        return 1
+        ;;
+    esac
+  fi
+  local digest
+  digest="$(curl -fsSL "$source_checksum_url" | awk -v file="$source_checksum_file" '
+    $0 ~ ("\\*" file "$") || $0 ~ ("[[:space:]]" file "$") {
+      print $1
+      found=1
+      exit
+    }
+    $0 ~ ("\\(" file "\\)[[:space:]]*=") {
+      print $NF
+      found=1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ')" || {
+    echo "checksum for $source_checksum_file not found in $source_checksum_url" >&2
+    return 1
+  }
+  printf '%s:%s\n' "$source_checksum_type" "$digest"
+}
+
+cleanup_dir() {
+  local path="$1"
+  rm -rf "$path" 2>/dev/null && return 0
+  command -v sudo >/dev/null || {
+    echo "failed to remove $path and sudo is unavailable" >&2
+    return 1
+  }
+  sudo rm -rf "$path"
+}
+
+source_checksum="$(resolve_source_checksum)"
+
+cleanup_dir "$work"
+cleanup_dir "$out"
 mkdir -p "$work" "$out"
 
 ssh_key="$work/packer_ed25519"
@@ -46,7 +99,6 @@ PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
   -var "source_url=$SOURCE_URL" \
   -var "source_checksum=$source_checksum" \
   -var "output_directory=$work/packer-output" \
-  -var "qemu_accelerator=$qemu_accelerator" \
   -var "ssh_username=$DEFAULT_USER" \
   -var "ssh_private_key_file=$ssh_key" \
   -var "ssh_public_key=$ssh_public_key" \

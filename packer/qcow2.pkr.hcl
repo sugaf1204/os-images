@@ -19,11 +19,6 @@ variable "output_directory" {
   type = string
 }
 
-variable "qemu_accelerator" {
-  type    = string
-  default = "tcg"
-}
-
 variable "ssh_username" {
   type = string
 }
@@ -49,6 +44,7 @@ locals {
     users:
       - default
     EOF
+  gomi_cloud_init = "datasource_list: [ NoCloud ]\ndatasource:\n  NoCloud:\n    seedfrom: file:///var/lib/cloud/seed/nocloud/\n"
 }
 
 source "qemu" "qcow2" {
@@ -65,7 +61,6 @@ source "qemu" "qcow2" {
   efi_firmware_code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
   efi_firmware_vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
 
-  accelerator       = var.qemu_accelerator
   headless          = true
   skip_compaction   = true
   skip_resize_disk  = true
@@ -90,6 +85,8 @@ build {
   provisioner "shell" {
     inline = [
       "sudo cloud-init status --wait || true",
+      "sudo mkdir -p /etc/cloud/cloud.cfg.d",
+      "printf '%s' '${local.gomi_cloud_init}' | sudo tee /etc/cloud/cloud.cfg.d/99-gomi-nocloud.cfg >/dev/null",
       "sudo rm -f /home/${var.ssh_username}/.ssh/authorized_keys",
       "sudo rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub",
       "sudo rm -f /var/lib/dbus/machine-id",
