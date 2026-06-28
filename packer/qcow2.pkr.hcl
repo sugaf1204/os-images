@@ -2,7 +2,7 @@ packer {
   required_plugins {
     qemu = {
       source  = "github.com/hashicorp/qemu"
-      version = "= 1.1.4"
+      version = "= 1.1.3"
     }
   }
 }
@@ -44,6 +44,11 @@ variable "apt_packages" {
 variable "apt_install_recommends" {
   type    = string
   default = "true"
+}
+
+variable "baremetal_driver_packages" {
+  type    = string
+  default = ""
 }
 
 variable "disk_size" {
@@ -120,6 +125,7 @@ build {
   provisioner "shell" {
     inline = [
       "sudo cloud-init status --wait || true",
+      "if [ -n '${var.baremetal_driver_packages}' ]; then driver_packages=\"$(printf '%s' '${var.baremetal_driver_packages}' | sed \"s/{kernel_release}/$(uname -r)/g\")\"; sudo apt-get update; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y $driver_packages; sudo apt-get clean; sudo rm -rf /var/lib/apt/lists/*; fi",
       "if [ -n '${var.apt_packages}' ]; then sudo apt-get update; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ${local.apt_install_recommends_arg} ${var.apt_packages}; sudo apt-get clean; sudo rm -rf /var/lib/apt/lists/*; fi",
       "sudo mkdir -p /etc/cloud/cloud.cfg.d",
       "printf '%s' '${local.gomi_cloud_init}' | sudo tee /etc/cloud/cloud.cfg.d/99-gomi-nocloud.cfg >/dev/null",

@@ -31,6 +31,8 @@ efi_filesystem="${EFI_FILESYSTEM:-vfat}"
 image_variant="${IMAGE_VARIANT:-}"
 apt_packages="${APT_PACKAGES:-}"
 apt_install_recommends="${APT_INSTALL_RECOMMENDS:-true}"
+deploy_targets="${DEPLOY_TARGETS:-baremetal}"
+baremetal_driver_packages="${BAREMETAL_DRIVER_PACKAGES:-}"
 disk_size="${DISK_SIZE:-0}"
 vm_memory="${PACKER_MEMORY:-2048}"
 vm_cpus="${PACKER_CPUS:-2}"
@@ -46,6 +48,32 @@ case "$apt_install_recommends" in
   *)
     echo "APT_INSTALL_RECOMMENDS must be true or false" >&2
     exit 2
+    ;;
+esac
+
+ubuntu_requires_baremetal_driver_packages() {
+  local version="$1"
+  local major="${version%%.*}"
+  local rest="${version#*.}"
+  local minor="${rest%%.*}"
+  case "$major:$minor" in
+    *[!0-9:]* | :* | *:) return 0 ;;
+  esac
+  if [ "$major" -lt 25 ]; then
+    return 0
+  fi
+  if [ "$major" -eq 25 ] && [ "$minor" -lt 10 ]; then
+    return 0
+  fi
+  return 1
+}
+
+case " $deploy_targets " in
+  *" baremetal "*)
+    if [ "$OS_FAMILY" = "ubuntu" ] && ubuntu_requires_baremetal_driver_packages "$OS_VERSION" && [ -z "$baremetal_driver_packages" ]; then
+      echo "BAREMETAL_DRIVER_PACKAGES is required for ubuntu baremetal images before 25.10" >&2
+      exit 2
+    fi
     ;;
 esac
 
@@ -120,6 +148,7 @@ PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
   -var "ssh_timeout=$ssh_timeout" \
   -var "apt_packages=$apt_packages" \
   -var "apt_install_recommends=$apt_install_recommends" \
+  -var "baremetal_driver_packages=$baremetal_driver_packages" \
   -var "disk_size=$disk_size" \
   -var "vm_memory=$vm_memory" \
   -var "vm_cpus=$vm_cpus" \
@@ -163,6 +192,13 @@ if [ -n "$apt_packages" ]; then
     }')"
 fi
 
+deploy_targets_json="$(jq -n --arg targets "$deploy_targets" '$targets | split(" ") | map(select(. != ""))')"
+
+module_packages_json="null"
+if [ -n "$baremetal_driver_packages" ]; then
+  module_packages_json="$(jq -n --arg packages "$baremetal_driver_packages" '$packages | split(" ") | map(select(. != ""))')"
+fi
+
 jq -n \
   --arg name "$image" \
   --arg osFamily "$OS_FAMILY" \
@@ -174,9 +210,11 @@ jq -n \
   --arg sha256 "$sha" \
   --arg sourceImageURL "$SOURCE_URL" \
   --arg sourceImageChecksum "$source_checksum" \
+  --argjson deployTargets "$deploy_targets_json" \
   --argjson rootPartition "$root_partition" \
   --argjson efiPartition "$efi_partition" \
   --argjson packageRecipe "$package_recipe" \
+  --argjson modulePackages "$module_packages_json" \
   '{
     name: $name,
     osFamily: $osFamily,
@@ -184,7 +222,7 @@ jq -n \
     arch: $arch,
     bootModes: ["uefi"],
     variant: $variant,
-    capabilities: {deployTargets: ["baremetal"]},
+    capabilities: {deployTargets: $deployTargets},
     cloudInit: {
       datasource: "nocloud",
       seedTransport: "rootfs",
@@ -204,4 +242,5 @@ jq -n \
     }
   }
   | if $packageRecipe == null then . else .build.packageRecipe = $packageRecipe end
+  | if $modulePackages == null then . else .build.modulePackages = $modulePackages end
   | if .variant == "" then del(.variant) else . end' >"$out/manifest.json"
