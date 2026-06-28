@@ -28,11 +28,26 @@ arch="${ARCH:-amd64}"
 root_filesystem="${ROOT_FILESYSTEM:-}"
 efi_partition_number="${EFI_PARTITION_NUMBER:-}"
 efi_filesystem="${EFI_FILESYSTEM:-vfat}"
+image_variant="${IMAGE_VARIANT:-}"
+apt_packages="${APT_PACKAGES:-}"
+apt_install_recommends="${APT_INSTALL_RECOMMENDS:-true}"
+disk_size="${DISK_SIZE:-0}"
+vm_memory="${PACKER_MEMORY:-2048}"
+vm_cpus="${PACKER_CPUS:-2}"
+qemu_accelerator="${PACKER_QEMU_ACCELERATOR:-}"
 source_checksum="${SOURCE_CHECKSUM:-}"
 source_checksum_url="${SOURCE_CHECKSUM_URL:-}"
 source_checksum_file="${SOURCE_CHECKSUM_FILE:-$(basename "$SOURCE_URL")}"
 source_checksum_type="${SOURCE_CHECKSUM_TYPE:-}"
 ssh_timeout="${PACKER_SSH_TIMEOUT:-10m}"
+
+case "$apt_install_recommends" in
+  true | false) ;;
+  *)
+    echo "APT_INSTALL_RECOMMENDS must be true or false" >&2
+    exit 2
+    ;;
+esac
 
 resolve_source_checksum() {
   if [ -n "$source_checksum" ]; then
@@ -103,6 +118,12 @@ PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
   -var "ssh_private_key_file=$ssh_key" \
   -var "ssh_public_key=$ssh_public_key" \
   -var "ssh_timeout=$ssh_timeout" \
+  -var "apt_packages=$apt_packages" \
+  -var "apt_install_recommends=$apt_install_recommends" \
+  -var "disk_size=$disk_size" \
+  -var "vm_memory=$vm_memory" \
+  -var "vm_cpus=$vm_cpus" \
+  -var "qemu_accelerator=$qemu_accelerator" \
   "$root/packer/qcow2.pkr.hcl"
 
 test -f "$work/packer-output/root.qcow2" || {
@@ -130,11 +151,24 @@ if [ -n "$efi_partition_number" ]; then
     '{number: $number, filesystem: $filesystem}')"
 fi
 
+package_recipe="null"
+if [ -n "$apt_packages" ]; then
+  package_recipe="$(jq -n \
+    --arg packages "$apt_packages" \
+    --argjson aptInstallRecommends "$apt_install_recommends" \
+    '{
+      packageManager: "apt",
+      packages: ($packages | split(" ") | map(select(. != ""))),
+      aptInstallRecommends: $aptInstallRecommends
+    }')"
+fi
+
 jq -n \
   --arg name "$image" \
   --arg osFamily "$OS_FAMILY" \
   --arg osVersion "$OS_VERSION" \
   --arg arch "$arch" \
+  --arg variant "$image_variant" \
   --arg defaultUser "$DEFAULT_USER" \
   --argjson size "$size" \
   --arg sha256 "$sha" \
@@ -142,12 +176,14 @@ jq -n \
   --arg sourceImageChecksum "$source_checksum" \
   --argjson rootPartition "$root_partition" \
   --argjson efiPartition "$efi_partition" \
+  --argjson packageRecipe "$package_recipe" \
   '{
     name: $name,
     osFamily: $osFamily,
     osVersion: $osVersion,
     arch: $arch,
     bootModes: ["uefi"],
+    variant: $variant,
     capabilities: {deployTargets: ["baremetal"]},
     cloudInit: {
       datasource: "nocloud",
@@ -166,4 +202,6 @@ jq -n \
       sourceImageURL: $sourceImageURL,
       sourceImageChecksum: $sourceImageChecksum
     }
-  }' >"$out/manifest.json"
+  }
+  | if $packageRecipe == null then . else .build.packageRecipe = $packageRecipe end
+  | if .variant == "" then del(.variant) else . end' >"$out/manifest.json"

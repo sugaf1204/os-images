@@ -16,12 +16,22 @@ GOMI manifest under `dist/<image>/`:
 - `manifest.json`
 - `SHA256SUMS`
 
+`ubuntu-24.04-desktop` is a derived Desktop artifact. It starts from the Ubuntu
+24.04 server cloud image, expands the qcow2 to `DISK_SIZE`, and installs
+`ubuntu-desktop-minimal` before cleaning the image for first boot. This build is
+slower and larger than the server artifacts. When registering the artifact in
+GOMI, use top-level OSImage `variant: desktop`; the release manifest also
+records the variant and package recipe for provenance. The Desktop image is
+available for local builds only until the release delivery path supports large
+artifacts; it is intentionally excluded from the GitHub Release matrix.
+
 Images:
 
 - `debian-12`
 - `debian-13`
 - `ubuntu-22.04`
 - `ubuntu-24.04`
+- `ubuntu-24.04-desktop`
 - `ubuntu-26.04`
 - `fedora-44`
 
@@ -40,11 +50,15 @@ repository does not build or publish separate VM images; VM deployment can use
 external cloud images registered directly in GOMI. For artifacts from this
 repository, GOMI should not ask curtin to install a replacement kernel, refresh
 packages, install a bootloader, or write distro-specific network renderer files.
+The current build and release workflow does not produce rootfs SquashFS
+artifacts. Older releases may still contain legacy `*-rootfs.squashfs` assets,
+but those files are not part of this repository's current artifact contract.
 
 ## Release
 
 Pushing a `v*` tag builds every image on GitHub Actions and attaches these
-assets to the GitHub Release:
+assets to the GitHub Release. `ubuntu-24.04-desktop` is excluded because the
+generated qcow2 is larger than GitHub Release's single-asset size limit.
 
 - `<image>-amd64.qcow2`
 - `<image>-amd64-manifest.json`
