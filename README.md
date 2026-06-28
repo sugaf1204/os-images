@@ -48,6 +48,9 @@ repository does not build or publish separate VM images; VM deployment can use
 external cloud images registered directly in GOMI. For artifacts from this
 repository, GOMI should not ask curtin to install a replacement kernel, refresh
 packages, install a bootloader, or write distro-specific network renderer files.
+The current build and release workflow does not produce rootfs SquashFS
+artifacts. Older releases may still contain legacy `*-rootfs.squashfs` assets,
+but those files are not part of this repository's current artifact contract.
 
 ## Release
 
