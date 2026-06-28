@@ -98,17 +98,18 @@ resolve_source_checksum() {
   fi
   local digest
   digest="$(curl -fsSL "$source_checksum_url" | awk -v file="$source_checksum_file" '
-    $0 ~ ("\\*" file "$") || $0 ~ ("[[:space:]]" file "$") {
-      print $1
+    !found && ($0 ~ ("\\*" file "$") || $0 ~ ("[[:space:]]" file "$")) {
+      digest=$1
       found=1
-      exit
     }
-    $0 ~ ("\\(" file "\\)[[:space:]]*=") {
-      print $NF
+    !found && $0 ~ ("\\(" file "\\)[[:space:]]*=") {
+      digest=$NF
       found=1
-      exit
     }
-    END { if (!found) exit 1 }
+    END {
+      if (!found) exit 1
+      print digest
+    }
   ')" || {
     echo "checksum for $source_checksum_file not found in $source_checksum_url" >&2
     return 1
