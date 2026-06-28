@@ -8,7 +8,7 @@ spec="$src/source.env"
 work="$root/.build/$image"
 out="$root/dist/$image"
 
-for cmd in awk curl jq packer sha256sum ssh-keygen stat; do
+for cmd in awk curl jq packer qemu-img sha256sum ssh-keygen stat; do
   command -v "$cmd" >/dev/null || { echo "missing command: $cmd" >&2; exit 1; }
 done
 
@@ -159,7 +159,7 @@ test -f "$work/packer-output/root.qcow2" || {
   echo "packer did not create $work/packer-output/root.qcow2" >&2
   exit 1
 }
-cp "$work/packer-output/root.qcow2" "$out/root.qcow2"
+qemu-img convert -p -O qcow2 -c "$work/packer-output/root.qcow2" "$out/root.qcow2"
 
 (cd "$out" && sha256sum root.qcow2 > SHA256SUMS)
 if ! size="$(stat -c %s "$out/root.qcow2" 2>/dev/null)"; then
