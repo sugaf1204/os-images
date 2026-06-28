@@ -16,12 +16,20 @@ GOMI manifest under `dist/<image>/`:
 - `manifest.json`
 - `SHA256SUMS`
 
+`ubuntu-24.04-desktop` is a derived Desktop artifact. It starts from the Ubuntu
+24.04 server cloud image, expands the qcow2 to `DISK_SIZE`, and installs
+`ubuntu-desktop-minimal` before cleaning the image for first boot. This build is
+slower and larger than the server artifacts. When registering the artifact in
+GOMI, use top-level OSImage `variant: desktop`; the release manifest also
+records the variant and package recipe for provenance.
+
 Images:
 
 - `debian-12`
 - `debian-13`
 - `ubuntu-22.04`
 - `ubuntu-24.04`
+- `ubuntu-24.04-desktop`
 - `ubuntu-26.04`
 - `fedora-44`
 

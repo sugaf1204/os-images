@@ -36,15 +36,46 @@ variable "ssh_timeout" {
   default = "10m"
 }
 
+variable "apt_packages" {
+  type    = string
+  default = ""
+}
+
+variable "apt_install_recommends" {
+  type    = string
+  default = "true"
+}
+
+variable "disk_size" {
+  type    = string
+  default = "0"
+}
+
+variable "vm_memory" {
+  type    = string
+  default = "2048"
+}
+
+variable "vm_cpus" {
+  type    = string
+  default = "2"
+}
+
+variable "qemu_accelerator" {
+  type    = string
+  default = "kvm"
+}
+
 locals {
-  user_data = <<-EOF
+  user_data                  = <<-EOF
     #cloud-config
     ssh_authorized_keys:
       - ${var.ssh_public_key}
     users:
       - default
     EOF
-  gomi_cloud_init = "datasource_list: [ NoCloud, None ]\ndatasource:\n  NoCloud:\n    seedfrom: file:///var/lib/cloud/seed/nocloud/\n"
+  gomi_cloud_init            = "datasource_list: [ NoCloud, None ]\ndatasource:\n  NoCloud:\n    seedfrom: file:///var/lib/cloud/seed/nocloud/\n"
+  apt_install_recommends_arg = var.apt_install_recommends == "true" ? "" : "--no-install-recommends"
 }
 
 source "qemu" "qcow2" {
@@ -55,18 +86,22 @@ source "qemu" "qcow2" {
   format           = "qcow2"
   output_directory = var.output_directory
   vm_name          = "root.qcow2"
+  accelerator      = var.qemu_accelerator
+  cpus             = var.vm_cpus
+  memory           = var.vm_memory
 
   efi_boot          = true
   efi_drop_efivars  = true
   efi_firmware_code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
   efi_firmware_vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
 
-  headless          = true
-  skip_compaction   = true
-  skip_resize_disk  = true
-  disk_compression  = false
-  shutdown_command  = "sudo shutdown -P now"
-  shutdown_timeout  = "5m"
+  headless         = true
+  skip_compaction  = true
+  skip_resize_disk = var.disk_size == "0" || var.disk_size == ""
+  disk_size        = var.disk_size
+  disk_compression = false
+  shutdown_command = "sudo shutdown -P now"
+  shutdown_timeout = "5m"
 
   ssh_username         = var.ssh_username
   ssh_private_key_file = var.ssh_private_key_file
@@ -85,6 +120,7 @@ build {
   provisioner "shell" {
     inline = [
       "sudo cloud-init status --wait || true",
+      "if [ -n '${var.apt_packages}' ]; then sudo apt-get update; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ${local.apt_install_recommends_arg} ${var.apt_packages}; sudo apt-get clean; sudo rm -rf /var/lib/apt/lists/*; fi",
       "sudo mkdir -p /etc/cloud/cloud.cfg.d",
       "printf '%s' '${local.gomi_cloud_init}' | sudo tee /etc/cloud/cloud.cfg.d/99-gomi-nocloud.cfg >/dev/null",
       "sudo rm -f /home/${var.ssh_username}/.ssh/authorized_keys",
