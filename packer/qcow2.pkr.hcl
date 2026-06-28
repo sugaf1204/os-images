@@ -63,7 +63,7 @@ variable "vm_cpus" {
 
 variable "qemu_accelerator" {
   type    = string
-  default = "kvm"
+  default = ""
 }
 
 locals {
@@ -86,7 +86,7 @@ source "qemu" "qcow2" {
   format           = "qcow2"
   output_directory = var.output_directory
   vm_name          = "root.qcow2"
-  accelerator      = var.qemu_accelerator
+  accelerator      = var.qemu_accelerator == "" ? null : var.qemu_accelerator
   cpus             = var.vm_cpus
   memory           = var.vm_memory
 

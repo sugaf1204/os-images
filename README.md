@@ -21,7 +21,9 @@ GOMI manifest under `dist/<image>/`:
 `ubuntu-desktop-minimal` before cleaning the image for first boot. This build is
 slower and larger than the server artifacts. When registering the artifact in
 GOMI, use top-level OSImage `variant: desktop`; the release manifest also
-records the variant and package recipe for provenance.
+records the variant and package recipe for provenance. The Desktop image is
+available for local builds only until the release delivery path supports large
+artifacts; it is intentionally excluded from the GitHub Release matrix.
 
 Images:
 
@@ -55,7 +57,8 @@ but those files are not part of this repository's current artifact contract.
 ## Release
 
 Pushing a `v*` tag builds every image on GitHub Actions and attaches these
-assets to the GitHub Release:
+assets to the GitHub Release. `ubuntu-24.04-desktop` is excluded because the
+generated qcow2 is larger than GitHub Release's single-asset size limit.
 
 - `<image>-amd64.qcow2`
 - `<image>-amd64-manifest.json`
