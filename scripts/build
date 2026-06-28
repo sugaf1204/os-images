@@ -51,10 +51,27 @@ case "$apt_install_recommends" in
     ;;
 esac
 
+ubuntu_requires_baremetal_driver_packages() {
+  local version="$1"
+  local major="${version%%.*}"
+  local rest="${version#*.}"
+  local minor="${rest%%.*}"
+  case "$major:$minor" in
+    *[!0-9:]* | :* | *:) return 0 ;;
+  esac
+  if [ "$major" -lt 25 ]; then
+    return 0
+  fi
+  if [ "$major" -eq 25 ] && [ "$minor" -lt 10 ]; then
+    return 0
+  fi
+  return 1
+}
+
 case " $deploy_targets " in
   *" baremetal "*)
-    if [ "$OS_FAMILY" = "ubuntu" ] && [ -z "$baremetal_driver_packages" ]; then
-      echo "BAREMETAL_DRIVER_PACKAGES is required for ubuntu baremetal images" >&2
+    if [ "$OS_FAMILY" = "ubuntu" ] && ubuntu_requires_baremetal_driver_packages "$OS_VERSION" && [ -z "$baremetal_driver_packages" ]; then
+      echo "BAREMETAL_DRIVER_PACKAGES is required for ubuntu baremetal images before 25.10" >&2
       exit 2
     fi
     ;;

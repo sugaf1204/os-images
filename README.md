@@ -50,12 +50,14 @@ repository does not build or publish separate VM images; VM deployment can use
 external cloud images registered directly in GOMI. For artifacts from this
 repository, GOMI should not ask curtin to install a replacement kernel, refresh
 packages, install a bootloader, or write distro-specific network renderer files.
-Ubuntu images that declare the bare-metal deploy target must set
+Ubuntu images before 25.10 that declare the bare-metal deploy target must set
 `BAREMETAL_DRIVER_PACKAGES="linux-modules-extra-{kernel_release}"`. Packer
 expands `{kernel_release}` inside the guest and installs the matching
 `linux-modules-extra-*` package for the image kernel, so bare-metal NIC drivers
 such as `e1000e` are present without adding unrelated driver bundles to other OS
-families.
+families. Ubuntu 25.10 and later images do not set this package because the
+extra modules are no longer published as a separate `linux-modules-extra-*`
+package.
 The current build and release workflow does not produce rootfs SquashFS
 artifacts. Older releases may still contain legacy `*-rootfs.squashfs` assets,
 but those files are not part of this repository's current artifact contract.
