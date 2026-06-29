@@ -133,6 +133,11 @@ cleanup_dir "$work"
 cleanup_dir "$out"
 mkdir -p "$work" "$out"
 
+source_image="$work/$(basename "$SOURCE_URL")"
+curl --fail --location --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+  --output "$source_image" \
+  "$SOURCE_URL"
+
 ssh_key="$work/packer_ed25519"
 ssh-keygen -q -t ed25519 -N "" -C "gomi-os-images-packer" -f "$ssh_key"
 ssh_public_key="$(cat "$ssh_key.pub")"
@@ -140,7 +145,7 @@ ssh_public_key="$(cat "$ssh_key.pub")"
 packer init "$root/packer"
 PACKER_CACHE_DIR="${PACKER_CACHE_DIR:-$root/.packer-cache}" \
   packer build -force \
-  -var "source_url=$SOURCE_URL" \
+  -var "source_url=$source_image" \
   -var "source_checksum=$source_checksum" \
   -var "output_directory=$work/packer-output" \
   -var "ssh_username=$DEFAULT_USER" \
