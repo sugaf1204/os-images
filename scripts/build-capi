@@ -27,12 +27,10 @@ qemu-img convert -p -O qcow2 -c "$source_disk" "$out/root.qcow2"
   cd "$out"
   sha256sum root.qcow2 > SHA256SUMS
 )
-size="$(stat -c %s "$out/root.qcow2")"
 sha="$(cut -d' ' -f1 "$out/SHA256SUMS")"
 
 jq -n \
   --arg name "$image" \
-  --argjson size "$size" \
   --arg sha256 "$sha" \
   '{
     name: $name,
@@ -50,17 +48,16 @@ jq -n \
     root: {
       path: "root.qcow2",
       format: "qcow2",
-      size: $size,
       sha256: $sha256,
       partitionTable: "gpt",
       rootPartition: {number: 2, filesystem: "ext4"},
       efiPartition: {number: 1, filesystem: "vfat"}
     },
     build: {
-      builder: "kubernetes-sigs/image-builder",
       builderVersion: "v0.1.55",
-      kubernetesVersion: "v1.36.4",
-      containerRuntime: "containerd",
-      verifiedKernelModules: ["igc", "r8169", "e1000e"]
+      packageManager: "apt",
+      modulePackages: ["linux-modules-extra-{kernel_release}"]
     }
   }' > "$out/manifest.json"
+
+"$root/scripts/test-capi-manifest" "$out/manifest.json"
