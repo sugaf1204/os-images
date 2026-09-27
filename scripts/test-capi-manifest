@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+manifest="${1:?usage: scripts/test-capi-manifest MANIFEST}"
+
+jq -e '
+  .name == "ubuntu-22.04-capi-v1.36.4" and
+  .osFamily == "ubuntu" and
+  .osVersion == "22.04" and
+  .arch == "amd64" and
+  .variant == "baremetal" and
+  .bootModes == ["uefi"] and
+  .capabilities.deployTargets == ["baremetal"] and
+  .cloudInit.datasource == "nocloud" and
+  .cloudInit.seedTransport == "rootfs" and
+  .cloudInit.defaultUser == "ubuntu" and
+  .root.path == "root.qcow2" and
+  .root.format == "qcow2" and
+  .root.partitionTable == "gpt" and
+  .root.rootPartition == {number: 2, filesystem: "ext4"} and
+  .root.efiPartition == {number: 1, filesystem: "vfat"} and
+  (.root.sha256 | test("^[0-9a-f]{64}$")) and
+  (.build.modulePackages | index("linux-modules-extra-{kernel_release}")) != null
+' "$manifest" >/dev/null
