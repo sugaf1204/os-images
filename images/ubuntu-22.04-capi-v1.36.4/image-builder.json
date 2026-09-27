@@ -1,7 +1,4 @@
 {
-  "accelerator": "tcg",
-  "cpu_model": "max",
-  "cpus": "2",
   "disk_size": "8192",
   "extra_debs": "linux-modules-extra-generic-hwe-22.04",
   "kubernetes_deb_version": "1.36.4-1.1",
