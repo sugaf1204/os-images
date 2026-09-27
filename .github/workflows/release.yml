@@ -68,3 +68,48 @@ jobs:
         run: |
           dir="dist/$IMAGE"
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$dir/$IMAGE-amd64.qcow2" "$dir/$IMAGE-amd64-manifest.json" "$dir/$IMAGE-amd64-SHA256SUMS" --clobber
+
+  build-capi:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner
+    needs: create-release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: kubernetes-sigs/image-builder
+          ref: v0.1.55
+          path: image-builder
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible curl jq make qemu-system-x86 qemu-utils xorriso coreutils ovmf
+
+      - uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232
+        with:
+          version: 1.15.3
+
+      - name: Build the CAPI node image
+        run: scripts/build-capi ubuntu-22.04-capi-v1.36.4 image-builder
+
+      - name: Prepare release assets
+        run: |
+          dir=dist/ubuntu-22.04-capi-v1.36.4
+          cp "$dir/root.qcow2" "$dir/ubuntu-22.04-amd64-capi-v1.36.4.qcow2"
+          cp "$dir/manifest.json" "$dir/ubuntu-22.04-amd64-capi-v1.36.4-manifest.json"
+          (cd "$dir" && sha256sum ubuntu-22.04-amd64-capi-v1.36.4.qcow2 ubuntu-22.04-amd64-capi-v1.36.4-manifest.json > ubuntu-22.04-amd64-capi-v1.36.4-SHA256SUMS)
+
+      - name: Upload release assets
+        if: env.ACT_LOCAL != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          dir=dist/ubuntu-22.04-capi-v1.36.4
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+            "$dir/ubuntu-22.04-amd64-capi-v1.36.4.qcow2" \
+            "$dir/ubuntu-22.04-amd64-capi-v1.36.4-manifest.json" \
+            "$dir/ubuntu-22.04-amd64-capi-v1.36.4-SHA256SUMS" \
+            --clobber

@@ -1,0 +1,9 @@
+{
+  "disk_size": "8192",
+  "extra_debs": "linux-modules-extra-generic-hwe-22.04",
+  "kubernetes_deb_version": "1.36.4-1.1",
+  "kubernetes_rpm_version": "1.36.4",
+  "kubernetes_semver": "v1.36.4",
+  "kubernetes_series": "v1.36",
+  "node_custom_roles_post": "gomi_node"
+}
