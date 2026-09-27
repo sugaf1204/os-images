@@ -34,9 +34,6 @@ Images:
 - `ubuntu-24.04-desktop`
 - `ubuntu-26.04`
 - `fedora-44`
-- `ubuntu-22.04-capi-v1.36.4`（Kubernetes SIG Image Builderで作成するCAPI node image）
-
-`ubuntu-22.04-capi-v1.36.4`は通常のOSイメージとは別に、kubeadm、kubelet、containerd、FRRを事前導入します。build中に物理nodeで使用する`igc`、`r8169`、`e1000e` kernel moduleの存在を検証します。
 
 ## Requirements
 
